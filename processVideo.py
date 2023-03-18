@@ -10,8 +10,6 @@ import multiprocessing
 import concurrent.futures
 from collections import deque
 from scipy.ndimage import gaussian_filter
-from skimage import img_as_ubyte, img_as_float
-from skimage.restoration import denoise_nl_means, estimate_sigma
 
 def clear_folder(folder):
     if os.path.exists(folder):
@@ -64,12 +62,6 @@ def apply_bilateral_filter(frame, d=5, sigma_color=75, sigma_space=75):
     frame_32f = frame.astype(np.float32)
     filtered_frame = cv2.bilateralFilter(frame_32f, d, sigma_color, sigma_space)
     return filtered_frame.astype(np.uint8)
-
-def apply_guided_filter(color_frame, depth_frame, radius=5, eps=0.1):
-    color_frame_float = img_as_float(color_frame)
-    depth_frame_float = img_as_float(depth_frame)
-    filtered_depth = ximgproc.guidedFilter(color_frame_float, depth_frame_float, radius, eps)
-    return img_as_ubyte(filtered_depth)
 
 def read_frame(depth_frames_folder, file_name):
     return cv2.imread(os.path.join(depth_frames_folder, file_name), cv2.IMREAD_UNCHANGED)
@@ -184,13 +176,15 @@ def smooth_depth_maps(depth_maps_queue, kernel_size, sigma):
 
     return smoothed_map.astype(np.uint16)
 
-
 # Define a function to process each frame
 def combine_frame(color_file, depth_file, color_frames_folder, depth_frames_folder, combined_frames_folder):
     color_frame = cv2.imread(os.path.join(color_frames_folder, color_file))
     depth_frame = cv2.imread(os.path.join(depth_frames_folder, depth_file))
 
-    combined_frame = np.concatenate((color_frame, depth_frame), axis=1)
+    # Resize depth_frame to match color_frame dimensions
+    depth_frame_resized = cv2.resize(depth_frame, (color_frame.shape[1], color_frame.shape[0]), interpolation=cv2.INTER_LINEAR)
+
+    combined_frame = np.concatenate((color_frame, depth_frame_resized), axis=1)
     combined_file = os.path.join(combined_frames_folder, color_file)
     cv2.imwrite(combined_file, combined_frame)
 
@@ -221,8 +215,8 @@ def combine_frames_into_video(input_video, color_frames_folder, depth_frames_fol
 
         # Use ffmpeg to create a video from the combined frames
         input_pattern = os.path.join(combined_frames_folder, 'frame_%07d.png')
-        command = f'ffmpeg -y -r {frame_rate} -i "{input_pattern}" -i "{input_video}" -c:v hevc_nvenc -pix_fmt yuv420p -crf 23 -map 0:v -map 1:a -c:a copy -shortest "{output_video}"'
-
+        command = f'ffmpeg -y -r {frame_rate} -i "{input_pattern}" -i "{input_video}" -c:v hevc_nvenc -pix_fmt yuv420p -preset fast -crf 28 -map 0:v -map 1:a -c:a copy -shortest "{output_video}"'
+    
     # Run the command and redirect the output to subprocess.PIPE
     proc = subprocess.Popen(command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
 
@@ -233,7 +227,7 @@ def combine_frames_into_video(input_video, color_frames_folder, depth_frames_fol
     if proc.returncode != 0:
         print(errors.decode())
 
-def main(input_video, output_video, doTAA = True, doTGaussian = False):
+def generate_depth_video(input_video, output_video, doTAA = True, doTGaussian = False):
     # Split video into individual frames
     main_start_time = time.time()
     start_time = time.time()
@@ -270,8 +264,18 @@ def main(input_video, output_video, doTAA = True, doTGaussian = False):
     print(f"Combining frames into video took {elapsed_time:.2f} seconds.")
     print(f"Total time processing video took {total_elapsed_time:.2f} seconds.")
 
+def process_all_videos(video_folder, output_folder):
+    if not os.path.exists(output_folder):
+        os.makedirs(output_folder)
+
+    for video_file in os.listdir(video_folder):
+        if video_file.endswith(".mp4"):
+            input_video = os.path.join(video_folder, video_file)
+            output_video = os.path.join(output_folder, "depth_" + video_file)
+            print(f"Processing video: {input_video}")
+            generate_depth_video(input_video, output_video)
 
 if __name__ == "__main__":
-    input_video = "./input.mp4"
-    output_video = "./output.mp4"
-    main(input_video, output_video)
+    video_folder = "./videos/"
+    output_folder = "./depth_videos/"
+    process_all_videos(video_folder, output_folder)
