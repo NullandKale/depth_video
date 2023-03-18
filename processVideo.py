@@ -268,8 +268,11 @@ def process_all_videos(video_folder, output_folder):
     if not os.path.exists(output_folder):
         os.makedirs(output_folder)
 
+    supported_formats = [".mp4", ".mkv", ".mov", ".avi"]
+
     for video_file in os.listdir(video_folder):
-        if video_file.endswith(".mp4"):
+        file_extension = os.path.splitext(video_file)[-1].lower()
+        if file_extension in supported_formats:
             input_video = os.path.join(video_folder, video_file)
             output_video = os.path.join(output_folder, "depth_" + video_file)
             print(f"Processing video: {input_video}")
