@@ -1,9 +1,10 @@
 name: midas-py310
 channels:
+  - conda-forge
+  - nvidia
   - pytorch
   - defaults
 dependencies:
-  - nvidia::cudatoolkit=11.7
   - python=3.10.8
   - pytorch::pytorch=1.13.0
   - torchvision=0.14.0
@@ -11,6 +12,7 @@ dependencies:
   - numpy=1.23.4
   - pip:
     - opencv-python==4.6.0.66
+    - opencv-contrib-python
     - imutils==0.5.4
     - timm==0.6.12
     - einops==0.6.0
