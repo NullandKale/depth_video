@@ -14,7 +14,7 @@ from imutils.video import VideoStream
 from midas.model_loader import default_models, load_model
 
 first_execution = True
-def process(device, model, model_type, image, input_size, target_size, optimize, use_camera):
+def process(device, model, model_type, images, input_size, target_sizes, optimize):
     """
     Run the inference and interpolate.
 
@@ -33,7 +33,7 @@ def process(device, model, model_type, image, input_size, target_size, optimize,
     """
     global first_execution
 
-    sample = torch.from_numpy(image).to(device).unsqueeze(0)
+    sample = torch.stack([torch.from_numpy(image) for image in images]).to(device)
 
     if optimize and device == torch.device("cuda"):
         if first_execution:
@@ -43,53 +43,27 @@ def process(device, model, model_type, image, input_size, target_size, optimize,
         sample = sample.to(memory_format=torch.channels_last)
         sample = sample.half()
 
-    if first_execution or not use_camera:
-        height, width = sample.shape[2:]
-        first_execution = False
+    predictions = model.forward(sample)
 
-    prediction = model.forward(sample)
-    prediction = (
+    # Calculate scale factors for each image in the batch
+    scale_factors = [target_size[-1] / predictions.shape[-1] for target_size in target_sizes]
+
+    # Interpolate each prediction with the corresponding scale factor
+    interpolated_predictions = [
         torch.nn.functional.interpolate(
-            prediction.unsqueeze(1),
-            size=target_size[::-1],
+            pred.unsqueeze(0).unsqueeze(1),
+            size=None,
+            scale_factor=scale_factor,
             mode="bicubic",
             align_corners=False,
-        )
-        .squeeze()
-        .cpu()
-        .numpy()
-    )
+        ).squeeze()
+        for pred, scale_factor in zip(predictions, scale_factors)
+    ]
 
-    return prediction
+    # Convert the interpolated predictions back to numpy array
+    predictions = [pred.cpu().numpy() for pred in interpolated_predictions]
 
-
-def create_side_by_side(image, depth, grayscale):
-    """
-    Take an RGB image and depth map and place them side by side. This includes a proper normalization of the depth map
-    for better visibility.
-
-    Args:
-        image: the RGB image
-        depth: the depth map
-        grayscale: use a grayscale colormap?
-
-    Returns:
-        the image and depth map place side by side
-    """
-    depth_min = depth.min()
-    depth_max = depth.max()
-    normalized_depth = 255 * (depth - depth_min) / (depth_max - depth_min)
-    normalized_depth *= 3
-
-    right_side = np.repeat(np.expand_dims(normalized_depth, 2), 3, axis=2) / 3
-    if not grayscale:
-        right_side = cv2.applyColorMap(np.uint8(right_side), cv2.COLORMAP_INFERNO)
-
-    if image is None:
-        return right_side
-    else:
-        return np.concatenate((image, right_side), axis=1)
-
+    return predictions
 
 def run(input_path, output_path, model_path, model_type="dpt_beit_large_512", optimize=False, side=False, height=None,
         square=False, grayscale=True):
@@ -122,29 +96,31 @@ def run(input_path, output_path, model_path, model_type="dpt_beit_large_512", op
     if output_path is not None:
         os.makedirs(output_path, exist_ok=True)
 
-    for index, image_name in enumerate(image_names):
+    # Modify batch_size according to your requirements
+    batch_size = 16
 
-        # input
-        original_image_rgb = utils.read_image(image_name)  # in [0, 1]
-        image = transform({"image": original_image_rgb})["image"]
+    # Loop through the images in batches
+    for index in range(0, num_images, batch_size):
+        batch_image_names = image_names[index : index + batch_size]
 
-        # compute
+        # Read and preprocess images in the batch
+        batch_original_images_rgb = [utils.read_image(image_name) for image_name in batch_image_names]
+        batch_transformed_images = [transform({"image": original_image_rgb})["image"] for original_image_rgb in batch_original_images_rgb]
+
+        # Compute depth maps for the batch
         with torch.no_grad():
-            prediction = process(device, model, model_type, image, (net_w, net_h), original_image_rgb.shape[1::-1],
-                                    optimize, False)
+            batch_predictions = process(device, model, model_type, batch_transformed_images, (net_w, net_h),
+                                        [img.shape[1::-1] for img in batch_original_images_rgb],
+                                        optimize)
 
-        # output
-        if output_path is not None:
-            filename = os.path.join(
-                output_path, os.path.splitext(os.path.basename(image_name))[0] + '-' + model_type
-            )
-            if not side:
+        # Save the depth maps
+        for i, prediction in enumerate(batch_predictions):
+            image_name = batch_image_names[i]
+            if output_path is not None:
+                filename = os.path.join(
+                    output_path, os.path.splitext(os.path.basename(image_name))[0] + '-' + model_type
+                )
                 utils.write_depth(filename, prediction, grayscale, bits=2)
-            else:
-                original_image_bgr = np.flip(original_image_rgb, 2)
-                content = create_side_by_side(original_image_bgr*255, prediction, grayscale)
-                cv2.imwrite(filename + ".png", content)
-
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
@@ -215,4 +191,4 @@ if __name__ == "__main__":
 
     # compute depth maps
     run(args.input_path, args.output_path, args.model_weights, args.model_type, args.optimize, args.side, args.height,
-        args.square, args.grayscale)
+        args.square, True)
