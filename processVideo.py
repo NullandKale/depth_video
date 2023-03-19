@@ -264,21 +264,32 @@ def generate_depth_video(input_video, output_video, doTAA = True, doTGaussian = 
     print(f"Combining frames into video took {elapsed_time:.2f} seconds.")
     print(f"Total time processing video took {total_elapsed_time:.2f} seconds.")
 
+def convert_to_mp4(input_video, output_video, duration=None):
+    duration_option = f'-t {duration}' if duration else ''
+    command = f'ffmpeg -y {duration_option} -i "{input_video}" -c:v libx264 -preset fast -crf 28 -c:a aac "{output_video}"'
+    proc = subprocess.Popen(command, shell=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    output, errors = proc.communicate()
+
 def process_all_videos(video_folder, output_folder):
     if not os.path.exists(output_folder):
         os.makedirs(output_folder)
 
-    supported_formats = [".mp4", ".mkv", ".mov", ".avi"]
+    supported_formats = [".mp4", ".mkv", ".mov", ".avi", ".m4v"]
 
-    for video_file in os.listdir(video_folder):
+    for video_file in os.listdir(unformatted_video_folder):
         file_extension = os.path.splitext(video_file)[-1].lower()
         if file_extension in supported_formats:
-            input_video = os.path.join(video_folder, video_file)
-            output_video = os.path.join(output_folder, "depth_" + video_file)
-            print(f"Processing video: {input_video}")
-            generate_depth_video(input_video, output_video)
+            input_video = os.path.join(unformatted_video_folder, video_file)
+            converted_video = os.path.join(video_folder, os.path.splitext(video_file)[0] + ".mp4")
+            print(f"Converting video: {input_video} to {converted_video}")
+            convert_to_mp4(input_video, converted_video)
+            output_video = os.path.join(output_folder, "depth_" + os.path.splitext(video_file)[0] + ".mp4")
+            print(f"Processing video: {converted_video}")
+            generate_depth_video(converted_video, output_video)
+
 
 if __name__ == "__main__":
+    unformatted_video_folder = "./unformatted_videos/"
     video_folder = "./videos/"
     output_folder = "./depth_videos/"
     process_all_videos(video_folder, output_folder)
