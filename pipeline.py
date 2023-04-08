@@ -2,6 +2,7 @@ import cv2
 import numpy as np
 import os
 import math
+import time
 import torch
 import imageio
 from tqdm import tqdm
@@ -90,16 +91,28 @@ def process_video(video_path, output_folder, model_path, model_type, optimize=Fa
     video_writer, output_video_filename = initialize_output(output_folder, frame_size, fps, video_path)
 
     # Initialize the tqdm progress bar with the total number of frames
-    progress_bar = tqdm(total=frame_count, desc="Processing video", unit="fps", position=0, leave=True)
+    progress_bar = tqdm(total=frame_count, desc="Processing video", unit=" frames", position=0, leave=True)
+
+    # Initialize time variables
+    time_frame_processing = 0
+    time_depth_prediction = 0
+    time_output_video = 0
 
     # Iterate over video frames and process them in batches
     for i, frames in enumerate(batch_process(video_reader, batch_size)):
         # Process the frames and get depth predictions
+        start_time = time.time()
         frames = np.array(frames, dtype=np.float64) / 255.0
+        time_frame_processing += time.time() - start_time
+
+        start_time = time.time()
         predictions = process_images(device, model, model_type, transform, net_w, net_h, frames, optimize)
-        
+        time_depth_prediction += time.time() - start_time
+
         # Write combined frames to output video
+        start_time = time.time()
         write_output_video(predictions, frames, video_writer)
+        time_output_video += time.time() - start_time
 
         # Update the tqdm progress bar with the number of frames processed in this batch
         progress_bar.update(len(frames))
@@ -110,6 +123,10 @@ def process_video(video_path, output_folder, model_path, model_type, optimize=Fa
     video_writer.wait()
 
     print(f"Video processing complete. Combined video saved as {output_video_filename}")
+    print(f"Time taken for frame processing: {time_frame_processing:.2f} seconds")
+    print(f"Time taken for depth prediction: {time_depth_prediction:.2f} seconds with a batch_size of {batch_size}")
+    print(f"Time taken for writing output video: {time_output_video:.2f} seconds")
+
 
 
 if __name__ == "__main__":
@@ -121,7 +138,7 @@ if __name__ == "__main__":
     #model_type = "dpt_beit_large_512"
 
     model_path = f"weights/{model_type}.pt"
-    optimize = False
+    optimize = True
     height = None
     square = False
     batch_size = 16
