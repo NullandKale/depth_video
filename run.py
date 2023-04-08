@@ -95,15 +95,10 @@ def process_images(device, model, model_type, transform, net_w, net_h, batch_ima
         return None
 
 def process(device, model, model_type, images, input_size, target_sizes, optimize):
-    global first_execution
 
     sample = torch.stack([torch.from_numpy(image) for image in images]).to(device)
 
     if optimize and device == torch.device("cuda"):
-        if first_execution:
-            print("  Optimization to half-floats activated. Use with caution, because models like Swin require\n"
-                    "  float precision to work properly and may yield non-finite depth values to some extent for\n"
-                    "  half-floats.")
         sample = sample.to(memory_format=torch.channels_last)
         sample = sample.half()
 
