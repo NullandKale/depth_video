@@ -5,7 +5,8 @@ import re
 import numpy as np
 import cv2
 import torch
-
+import io
+from itertools import islice
 
 def read_pfm(path):
     """Read pfm file.
@@ -163,7 +164,27 @@ def resize_depth(depth, width, height):
 
     return depth_resized
 
-def write_depth(path, depth, grayscale, bits=1):
+def depth_to_rgb24_pixels(prediction):
+    # Calculate depth range from prediction
+    depth_min, depth_max = np.min(prediction), np.max(prediction)
+
+    # Scale depth values to range [0, 2^8-1]
+    depth_scaled = (prediction - depth_min) / (depth_max - depth_min) * ((2**8)-1)
+
+    # Convert to uint8 and reshape to 2D image
+    depth_image = np.uint8(depth_scaled).reshape(prediction.shape)
+
+    # Convert to grayscale and encode to memory
+    depth_gray = cv2.cvtColor(depth_image, cv2.COLOR_GRAY2BGR)
+    _, img_bytes = cv2.imencode('.png', depth_gray)
+
+    # Decode PNG file from memory and convert to RGB24 pixel array
+    img_buf = np.frombuffer(img_bytes, dtype=np.uint8)
+    img_rgb24 = cv2.imdecode(img_buf, cv2.IMREAD_COLOR)
+
+    return img_rgb24
+
+def write_depth(path, prediction, grayscale = True, bits=2):
     """Write depth map to png file.
 
     Args:
@@ -174,19 +195,19 @@ def write_depth(path, depth, grayscale, bits=1):
     if not grayscale:
         bits = 1
 
-    if not np.isfinite(depth).all():
-        depth=np.nan_to_num(depth, nan=0.0, posinf=0.0, neginf=0.0)
+    if not np.isfinite(prediction).all():
+        prediction=np.nan_to_num(prediction, nan=0.0, posinf=0.0, neginf=0.0)
         print("WARNING: Non-finite depth values present")
 
-    depth_min = depth.min()
-    depth_max = depth.max()
+    depth_min = prediction.min()
+    depth_max = prediction.max()
 
     max_val = (2**(8*bits))-1
 
     if depth_max - depth_min > np.finfo("float").eps:
-        out = max_val * (depth - depth_min) / (depth_max - depth_min)
+        out = max_val * (prediction - depth_min) / (depth_max - depth_min)
     else:
-        out = np.zeros(depth.shape, dtype=depth.dtype)
+        out = np.zeros(prediction.shape, dtype=prediction.dtype)
 
     if not grayscale:
         out = cv2.applyColorMap(np.uint8(out), cv2.COLORMAP_INFERNO)
@@ -195,5 +216,40 @@ def write_depth(path, depth, grayscale, bits=1):
         cv2.imwrite(path + ".png", out.astype("uint8"))
     elif bits == 2:
         cv2.imwrite(path + ".png", out.astype("uint16"))
+ 
+def depth_to_rgb24(prediction):
+    # Calculate depth range from prediction
+    depth_min, depth_max = np.min(prediction), np.max(prediction)
 
-    return
+    # Scale depth values to range [0, 2^8-1]
+    depth_scaled = (prediction - depth_min) / (depth_max - depth_min) * ((2**8)-1)
+
+    # Convert to uint8 and reshape to 2D image
+    depth_image = np.uint8(depth_scaled).reshape(prediction.shape)
+
+    # Convert to grayscale
+    depth_gray = cv2.cvtColor(depth_image, cv2.COLOR_GRAY2BGR)
+
+    return depth_gray
+
+def batch_process(iterable, batch_size):
+    """
+    Group an iterable into batches of size batch_size.
+    """
+    it = iter(iterable)
+    for batch in iter(lambda: list(islice(it, batch_size)), []):
+        yield batch
+
+def scale_depth_values(predictions, bits=2):
+    max_val = (2**(8*bits))-1
+    scaled_predictions = []
+
+    for prediction in predictions:
+        depth_min, depth_max = np.min(prediction), np.max(prediction)
+        if depth_max - depth_min > np.finfo("float").eps:
+            out = max_val * (prediction - depth_min) / (depth_max - depth_min)
+        else:
+            out = np.zeros(prediction.shape, dtype=prediction.dtype)
+        scaled_predictions.append(out)
+
+    return scaled_predictions
