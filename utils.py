@@ -239,17 +239,3 @@ def batch_process(iterable, batch_size):
     it = iter(iterable)
     for batch in iter(lambda: list(islice(it, batch_size)), []):
         yield batch
-
-def scale_depth_values(predictions, bits=2):
-    max_val = (2**(8*bits))-1
-    scaled_predictions = []
-
-    for prediction in predictions:
-        depth_min, depth_max = np.min(prediction), np.max(prediction)
-        if depth_max - depth_min > np.finfo("float").eps:
-            out = max_val * (prediction - depth_min) / (depth_max - depth_min)
-        else:
-            out = np.zeros(prediction.shape, dtype=prediction.dtype)
-        scaled_predictions.append(out)
-
-    return scaled_predictions

@@ -19,20 +19,112 @@ saved_output = False
 
 warnings.filterwarnings("ignore", message="torch.meshgrid: in an upcoming release, it will be required to pass the indexing argument.")
 
+class MidasModel:
+    def __init__(self, device, model, transform):
+        self.device = device
+        self.model = model
+        self.transform = transform
+
 def initialize_model(model_path, model_type="dpt_beit_large_512", optimize=False, height=None, square=False):
     logging.getLogger("transformers").setLevel(logging.ERROR)
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
     try:
-        model, transform, net_w, net_h = load_model(device, model_path, model_type, optimize, height, square)
+        model, transform, _, _ = load_model(device, model_path, model_type, optimize, height, square)
     except Exception as e:
         print("Error during model loading:", e)
-        return None, None, None, None, None
-    return device, model, transform, net_w, net_h
+        return None
+    return MidasModel(device, model, transform)
 
-def run(input_path, output_path, model_path, model_type="dpt_beit_large_512", optimize=False, side=False, height=None,
-        square=False, grayscale=True):
+def resize_frame(frame, min_width=384):
+    height, width, _ = frame.shape
+    if width >= min_width:
+        return frame.copy()
+
+    new_width = min_width
+    aspect_ratio = float(height) / float(width)
+    new_height = int(new_width * aspect_ratio)
+
+    return cv2.resize(frame.copy(), (new_width, new_height), interpolation=cv2.INTER_AREA)
+
+def scale_depth_values(predictions, bits=2):
+    max_val = (2**(8*bits))-1
+    scaled_predictions = []
+
+    for prediction in predictions:
+        depth_min, depth_max = np.min(prediction), np.max(prediction)
+        if depth_max - depth_min > np.finfo("float").eps:
+            out = max_val * (prediction - depth_min) / (depth_max - depth_min)
+        else:
+            out = np.zeros(prediction.shape, dtype=prediction.dtype)
+        scaled_predictions.append(out)
+
+    return scaled_predictions
+
+def resize_frame_torch(frame, min_width=384):
+    height, width, _ = frame.shape
+    if width >= min_width:
+        return torch.from_numpy(frame)
+
+    new_width = min_width
+    aspect_ratio = float(height) / float(width)
+    new_height = int(new_width * aspect_ratio)
+
+    frame_torch = torch.from_numpy(frame)
+    frame_torch = frame_torch.permute(2, 0, 1).unsqueeze(0)
+    resized_frame_torch = torch.nn.functional.interpolate(
+        frame_torch, (new_height, new_width), mode='bilinear', align_corners=False
+    )
+    return resized_frame_torch.squeeze(0).permute(1, 2, 0)
+
+def process_images(midas_model, batch_images, optimize=False, min_width=384):
+    batch_original_images_rgb = batch_images
+    batch_transformed_images = []
+    for original_image_rgb in batch_original_images_rgb:
+        # Normalize the original image's pixel values
+        original_image_rgb = original_image_rgb.astype(np.float32) / 255.0
+        transformed_image = midas_model.transform({"image": original_image_rgb})["image"]
+        batch_transformed_images.append(transformed_image)
+
+    with torch.no_grad():
+        batch_predictions = process(midas_model, batch_transformed_images, [(image.shape[0], image.shape[1]) for image in batch_original_images_rgb], optimize)
+
+    # Scale the depth predictions
+    batch_predictions = scale_depth_values(batch_predictions)
+
+    return batch_predictions
+
+def process(midas_model, images, target_sizes, optimize):
+    device = midas_model.device
+    model = midas_model.model
+
+    sample = torch.stack([torch.from_numpy(image) for image in images]).to(device)
+
+    if optimize and device == torch.device("cuda"):
+        sample = sample.to(memory_format=torch.channels_last)
+        sample = sample.half()
+
+    predictions = model.forward(sample)
+
+    # Interpolate each prediction to match the original input size
+    interpolated_predictions = [
+        torch.nn.functional.interpolate(
+            pred.unsqueeze(0).unsqueeze(1),
+            size=(target_size[0], target_size[1]),
+            mode="bicubic",
+            align_corners=False,
+        ).squeeze()
+        for pred, target_size in zip(predictions, target_sizes)
+    ]
+
+    # Convert the interpolated predictions back to numpy array
+    predictions = [pred.cpu().numpy() for pred in interpolated_predictions]
+
+    return predictions
+
+
+def run(input_path, output_path, model_path, model_type, optimize, side, height, square, grayscale):
     # initialize the model
-    device, model, transform, net_w, net_h = initialize_model(model_path, model_type, optimize, height, square)
+    model  = initialize_model(model_path, model_type, optimize, height, square)
     if model is None:
         return
 
@@ -55,10 +147,8 @@ def run(input_path, output_path, model_path, model_type="dpt_beit_large_512", op
         # Read and preprocess images in the batch
         batch_original_images_rgb = [utils.read_image(image_name) for image_name in batch_image_names]
 
-        # cv2.imwrite("out/test_input_frame_run.png", cv2.cvtColor(batch_original_images_rgb[0], cv2.COLOR_RGB2BGR))
-
         # Compute depth maps for the batch
-        batch_predictions = process_images(device, model, model_type, transform, net_w, net_h, batch_original_images_rgb, optimize)
+        batch_predictions = process_images(model, batch_original_images_rgb, optimize)
 
         # Save the depth maps
         for i, prediction in enumerate(batch_predictions):
@@ -68,61 +158,6 @@ def run(input_path, output_path, model_path, model_type="dpt_beit_large_512", op
                     output_path, os.path.splitext(os.path.basename(image_name))[0] + '-' + model_type
                 )
                 utils.write_depth(filename, prediction, grayscale, bits=2)
-
-def process_images(device, model, model_type, transform, net_w, net_h, batch_images, optimize=False, prefix=""):
-    try:
-        batch_original_images_rgb = batch_images
-        batch_transformed_images = [transform({"image": original_image_rgb})["image"] for original_image_rgb in batch_original_images_rgb]
-
-        # print(f"{prefix}Input image shape: {batch_original_images_rgb[0].shape}, data type: {batch_original_images_rgb[0].dtype}")
-
-        with torch.no_grad():
-            batch_predictions = process(device, model, model_type, batch_transformed_images, (net_w, net_h), [(image.shape[0], image.shape[1]) for image in batch_original_images_rgb], optimize)
-
-        global saved_output
-        if not saved_output:
-            # Save a single test image
-            saved_output = True
-            utils.write_depth("out/test_process_images.png", batch_predictions[0], True, bits=2)
-
-        # Scale the depth predictions
-        batch_predictions = utils.scale_depth_values(batch_predictions)
-
-        return batch_predictions
-
-    except Exception as e:
-        print(f"{prefix}Error during image processing:", e)
-        return None
-
-def process(device, model, model_type, images, input_size, target_sizes, optimize):
-
-    sample = torch.stack([torch.from_numpy(image) for image in images]).to(device)
-
-    if optimize and device == torch.device("cuda"):
-        sample = sample.to(memory_format=torch.channels_last)
-        sample = sample.half()
-
-    predictions = model.forward(sample)
-
-    # Calculate scale factors for each image in the batch
-    scale_factors = [target_size[-1] / predictions.shape[-1] for target_size in target_sizes]
-
-    # Interpolate each prediction with the corresponding scale factor
-    interpolated_predictions = [
-        torch.nn.functional.interpolate(
-            pred.unsqueeze(0).unsqueeze(1),
-            size=None,
-            scale_factor=scale_factor,
-            mode="bicubic",
-            align_corners=False,
-        ).squeeze()
-        for pred, scale_factor in zip(predictions, scale_factors)
-    ]
-
-    # Convert the interpolated predictions back to numpy array
-    predictions = [pred.cpu().numpy() for pred in interpolated_predictions]
-
-    return predictions
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
