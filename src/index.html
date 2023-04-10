@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>Depth_TV</title>
+    <script src="https://code.jquery.com/jquery-3.6.0.min.js"></script>
+    <script src="src/api.js"></script>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Depth TV</title>
+    <style>
+      body {
+        font-family: Arial, sans-serif;
+      }
+      select, button {
+        margin: 10px;
+      }
+      #episode-path {
+        margin: 10px;
+        display: none;
+      }
+    </style>
+  </head>
+  <body>
+    <h1>Depth Video API Frontend</h1>
+    <select id="show-select">
+      <option value="">Select a show</option>
+    </select>
+    <select id="season-select" style="display: none;">
+      <option value="">Select a season</option>
+    </select>
+    <select id="episode-select" style="display: none;">
+      <option value="">Select an episode</option>
+    </select>
+    <button id="process-video" style="display: none;">Process Video</button>
+    <p id="episode-path"></p>
+    <script src="src/script.js"></script>
+  </body>
+</html>
