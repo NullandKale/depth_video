@@ -20,20 +20,11 @@ saved_output = False
 warnings.filterwarnings("ignore", message="torch.meshgrid: in an upcoming release, it will be required to pass the indexing argument.")
 
 class MidasModel:
-    def __init__(self, device, model, transform):
+    def __init__(self, device, model, model_type, transform):
         self.device = device
         self.model = model
+        self.model_type = model_type
         self.transform = transform
-
-def initialize_model(model_path, model_type="dpt_beit_large_512", optimize=False, height=None, square=False):
-    logging.getLogger("transformers").setLevel(logging.ERROR)
-    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
-    try:
-        model, transform, _, _ = load_model(device, model_path, model_type, optimize, height, square)
-    except Exception as e:
-        print("Error during model loading:", e)
-        return None
-    return MidasModel(device, model, transform)
 
 def resize_frame(frame, min_width=384):
     height, width, _ = frame.shape
@@ -51,11 +42,14 @@ def scale_depth_values(predictions, bits=2):
     scaled_predictions = []
 
     for prediction in predictions:
-        depth_min, depth_max = np.min(prediction), np.max(prediction)
-        if depth_max - depth_min > np.finfo("float").eps:
-            out = max_val * (prediction - depth_min) / (depth_max - depth_min)
+        depth_min, depth_max = np.nanmin(prediction), np.nanmax(prediction)
+        range_diff = depth_max - depth_min
+
+        if np.isfinite(range_diff) and range_diff > np.finfo("float").eps:
+            out = max_val * (prediction - depth_min) / range_diff
         else:
             out = np.zeros(prediction.shape, dtype=prediction.dtype)
+
         scaled_predictions.append(out)
 
     return scaled_predictions
@@ -76,7 +70,20 @@ def resize_frame_torch(frame, min_width=384):
     )
     return resized_frame_torch.squeeze(0).permute(1, 2, 0)
 
+def initialize_model(model_path, model_type="dpt_beit_large_512", optimize=False, height=None, square=False):
+    logging.getLogger("transformers").setLevel(logging.ERROR)
+    device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
+    try:
+        model, transform, _, _ = load_model(device, model_path, model_type, optimize, height, square)
+    except Exception as e:
+        print("Error during model loading:", e)
+        return None
+    return MidasModel(device, model, model_type, transform)
+
 def process_images(midas_model, batch_images, optimize=False, min_width=384):
+    # print(f"type(frames): {type(batch_images)}, len(frames): {len(batch_images)}")
+    # print(f"frames[0]: type={type(batch_images[0])}, shape={batch_images[0].shape}, dtype={batch_images[0].dtype}")
+    # exit()
     batch_original_images_rgb = batch_images
     batch_transformed_images = []
     for original_image_rgb in batch_original_images_rgb:

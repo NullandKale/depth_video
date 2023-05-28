@@ -1,0 +1,31 @@
+<!DOCTYPE html>
+<html>
+    <head>
+        <title>WebSocket Test</title>
+        <script src="static/main.js"></script>
+    </head>
+    <body>
+        <div id="serverStats">
+            <p id="totalFrames">Total Frames: 0</p>
+            <p id="averageProcessingTime">Average Processing Time: 0 ms</p>
+            <p id="framesPerSecond">Frames per Second: 0</p>
+        </div>        
+        <p id="fpsCounter">FPS: 0</p>
+
+        <div>
+            <video id="video" width="720" height="400" autoplay></video>
+            <canvas id="outputCanvas" width="720" height="480"></canvas>
+        </div>
+
+        <div>
+            <select id="resolutionSelection">
+                <option value="480x320">480x320</option>
+                <option value="720x480">720x480</option>
+                <option value="1280x720">1280x720</option>
+                <option value="1920x1080">1920x1080</option>
+            </select>
+
+            <button id="startButton">Start Processing</button>
+        </div>
+    </body>
+</html>

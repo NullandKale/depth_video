@@ -59,8 +59,15 @@ def process_video(video_path, output_folder, model_path, model_type, optimize, h
     time_output_video = 0
     time_pipeline = 0
 
+    # this uses video_reader from the initialize_video function to read the frames in the video
+    # whatever format that is in is what the process_images expects 
     for i, frames in enumerate(batch_process(video_reader, batch_size)):
         start_time = time.time()
+        # Debug prints
+        # print(f"type(frames): {type(frames)}, len(frames): {len(frames)}")
+        # print(f"frames[0]: type={type(frames[0])}, shape={frames[0].shape}, dtype={frames[0].dtype}")
+        # print(f"frame_size[1]:{frame_size[1]}")
+        # exit()
         predictions = process_images(model, frames, optimize, min_width=frame_size[1])
         time_depth_prediction += time.time() - start_time
 
