@@ -9,8 +9,8 @@ def is_video_file(filename):
 if __name__ == "__main__":
     output_folder = "output/"
 
-    model_type = "dpt_beit_base_384"
-    # model_type = "dpt_beit_large_384"
+    # model_type = "dpt_beit_base_384"
+    model_type = "dpt_beit_large_384"
     # model_type = "dpt_next_vit_large_384"
     # model_type = "dpt_swin2_base_384"
     # model_type = "dpt_beit_large_512"
@@ -19,7 +19,7 @@ if __name__ == "__main__":
     optimize = True
     height = None
     square = False
-    batch_size = 32
+    batch_size = 1
 
     input_folder = "unformatted_videos/"
 

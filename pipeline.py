@@ -19,37 +19,43 @@ def to_torch(img):
 def from_torch(tensor):
     return tensor.squeeze(0).permute(1, 2, 0).cpu().numpy().astype(np.uint8)
 
-def bias_depth_frame(depth_frame, bias_center=0.5, scale_factor=2.0):
-    depth_frame = depth_frame / 255.0
-    depth_frame = (torch.tanh((depth_frame - bias_center) * scale_factor) + 1.0) / 2.0
-    depth_frame = (depth_frame * 255)
-    return depth_frame
-
 def apply_taa(depth_frame, taa_strength=0.5):
-    if apply_taa.previous_frame is None:
+    if apply_taa.previous_frame is None or apply_taa.previous_frame.shape[-2:] != depth_frame.shape[-2:]:
         apply_taa.previous_frame = depth_frame.clone()
-    taa_frame = (taa_strength * apply_taa.previous_frame + (1 - taa_strength) * depth_frame)
-    apply_taa.previous_frame = depth_frame.clone()
-    return taa_frame
+    else:
+        depth_frame = (taa_strength * apply_taa.previous_frame + (1 - taa_strength) * depth_frame)
+        apply_taa.previous_frame = depth_frame.clone()
+    return apply_taa.previous_frame
 
 apply_taa.previous_frame = None
 
-def pipeline(prediction, color_frame, mode="fast"):
+def pipeline_depth_only(prediction, color_frame, enableTAA = False):
     # Convert prediction to a depth_frame using depth_to_rgb24
     depth_frame = depth_to_rgb24(prediction)
     depth_frame = to_torch(depth_frame)
-    
-    if mode == 'slow':
-        # Bias depth_frame towards 0.5
-        depth_frame = bias_depth_frame(depth_frame)
+
+    # Resize depth_frame to match color frame size
+    depth_frame = F.interpolate(depth_frame, size=(color_frame.shape[0], color_frame.shape[1]), mode='nearest')
+
+    # Apply TAA
+    if enableTAA:
+        depth_frame = apply_taa(depth_frame)
+
+    return from_torch(depth_frame)
+
+
+def pipeline(prediction, color_frame):
+    # Convert prediction to a depth_frame using depth_to_rgb24
+    depth_frame = depth_to_rgb24(prediction)
+    depth_frame = to_torch(depth_frame)
+
+    # Resize depth_frame to match color frame size
+    depth_frame = F.interpolate(depth_frame, size=(color_frame.shape[0], color_frame.shape[1]), mode='nearest')
 
     # Apply TAA
     depth_frame = apply_taa(depth_frame)
 
-    # Resize to match color frame
-    resized_frame = F.interpolate(depth_frame, size=(color_frame.shape[0], color_frame.shape[1]), mode='nearest')
-
     # Combine color and depth frames
     color_frame_torch = to_torch(color_frame)
-    combined_frame = torch.cat((color_frame_torch, resized_frame), dim=-1)
+    combined_frame = torch.cat((color_frame_torch, depth_frame), dim=-1)
     return from_torch(combined_frame)

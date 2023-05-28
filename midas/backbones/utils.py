@@ -80,6 +80,10 @@ def forward_default(pretrained, x, function_name="forward_features"):
     return layer_1, layer_2, layer_3, layer_4
 
 
+def custom_unflatten(x, unflattened_size):
+    new_shape = (x.shape[0], x.shape[1], unflattened_size[0].item(), unflattened_size[1].item())
+    return x.view(new_shape)
+
 def forward_adapted_unflatten(pretrained, x, function_name="forward_features"):
     b, c, h, w = x.shape
 
@@ -95,26 +99,17 @@ def forward_adapted_unflatten(pretrained, x, function_name="forward_features"):
     layer_3 = pretrained.act_postprocess3[0:2](layer_3)
     layer_4 = pretrained.act_postprocess4[0:2](layer_4)
 
-    unflatten = nn.Sequential(
-        nn.Unflatten(
-            2,
-            torch.Size(
-                [
-                    h // pretrained.model.patch_size[1],
-                    w // pretrained.model.patch_size[0],
-                ]
-            ),
-        )
-    )
+    # unflatten_size = torch.tensor([ h // pretrained.model.patch_size[1], w // pretrained.model.patch_size[0] ], dtype=torch.int32)
+    unflatten_size = torch.tensor([ 24, 42 ], dtype=torch.int32)
 
     if layer_1.ndim == 3:
-        layer_1 = unflatten(layer_1)
+        layer_1 = custom_unflatten(layer_1, unflatten_size)
     if layer_2.ndim == 3:
-        layer_2 = unflatten(layer_2)
+        layer_2 = custom_unflatten(layer_2, unflatten_size)
     if layer_3.ndim == 3:
-        layer_3 = unflatten(layer_3)
+        layer_3 = custom_unflatten(layer_3, unflatten_size)
     if layer_4.ndim == 3:
-        layer_4 = unflatten(layer_4)
+        layer_4 = custom_unflatten(layer_4, unflatten_size)
 
     layer_1 = pretrained.act_postprocess1[3: len(pretrained.act_postprocess1)](layer_1)
     layer_2 = pretrained.act_postprocess2[3: len(pretrained.act_postprocess2)](layer_2)

@@ -219,10 +219,14 @@ def write_depth(path, prediction, grayscale = True, bits=2):
  
 def depth_to_rgb24(prediction):
     # Calculate depth range from prediction
-    depth_min, depth_max = np.min(prediction), np.max(prediction)
+    depth_min, depth_max = np.nanmin(prediction), np.nanmax(prediction)
+    range_diff = depth_max - depth_min
 
-    # Scale depth values to range [0, 2^8-1]
-    depth_scaled = (prediction - depth_min) / (depth_max - depth_min) * ((2**8)-1)
+    # Scale depth values to range [0, 2^8-1] if range_diff is valid
+    if np.isfinite(range_diff) and range_diff > np.finfo("float").eps:
+        depth_scaled = (prediction - depth_min) / range_diff * ((2**8)-1)
+    else:
+        depth_scaled = np.zeros(prediction.shape, dtype=prediction.dtype)
 
     # Convert to uint8 and reshape to 2D image
     depth_image = np.uint8(depth_scaled).reshape(prediction.shape)
