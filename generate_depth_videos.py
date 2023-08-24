@@ -7,7 +7,7 @@ import subprocess
 import imageio
 from tqdm import tqdm
 from run import initialize_model, process_images
-from pipeline import pipeline
+from pipeline import pipeline, special_pipeline
 from output_adapter import initialize_output, write_output_video
 from utils import depth_to_rgb24, batch_process, depth_to_rgb24_pixels, write_depth
 import logging
@@ -75,7 +75,8 @@ def process_video(video_path, output_folder, model_path, model_type, optimize, h
         start_time = time.time()
         for prediction, frame in zip(predictions, frames):
             pipeline_start = time.time()
-            combined_frame = pipeline(prediction, frame)
+            # combined_frame = pipeline(prediction, frame)
+            combined_frame = special_pipeline(prediction, frame)
             time_pipeline += time.time() - pipeline_start
             write_output_video(combined_frame, video_writer)
         time_output_video += time.time() - start_time

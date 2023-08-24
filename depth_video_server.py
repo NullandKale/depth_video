@@ -23,6 +23,7 @@ model_type = "dpt_beit_base_384"
 # model_type = "dpt_next_vit_large_384"
 # model_type = "dpt_swin2_base_384"
 # model_type = "dpt_beit_large_512"
+# model_type = "midas_v21_384"
 
 model_path = f"weights/{model_type}.pt"
 
@@ -84,14 +85,11 @@ def process_image():
             stream_id, width, height, timestamp, img_data = parse_frame(frame_data)
             
             image = cv2.imdecode(np.frombuffer(img_data, np.uint8), cv2.IMREAD_COLOR)
-            print(f"image shape: {image.shape} frame size: {width}x{height}")
-            image = cv2.resize(image, (1280, 720), interpolation=cv2.INTER_LINEAR)
+            # print(f"image shape: {image.shape} frame size: {width}x{height}")
             
-            input_images = [image]
-            prediction = process_images(model, input_images, optimize=True, min_width=1280)
+            prediction = process_images(model, [image], optimize=True)
 
             depth_Frame = pipeline_depth_only(prediction[0], image, True)
-            depth_Frame = cv2.resize(depth_Frame, (width, height), interpolation=cv2.INTER_AREA)
 
             _, enc_img = cv2.imencode('.jpg', depth_Frame)
             if enc_img is None:

@@ -17,9 +17,9 @@ if __name__ == "__main__":
 
     model_path = f"weights/{model_type}.pt"
     optimize = True
-    height = None
+    height = 384
     square = False
-    batch_size = 1
+    batch_size = 24
 
     input_folder = "unformatted_videos/"
 
